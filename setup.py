@@ -19,7 +19,7 @@ setup(
     version=version,
     packages=find_packages(),
     install_requires=[
-        'boto',
+        'boto>=2.43.0',
         'click',
         'prettytable',
         'requests',

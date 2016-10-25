@@ -21,7 +21,8 @@ def format_price(price):
 @click.command()
 @click.argument('region', nargs=1)
 @click.option('--show-expirations/--no-show-expirations', help='Show future RI expirations')
-def main(region, show_expirations=False):
+@click.option('--bake-upfront/--no-bake-upfront', help='Bake in upfront pricing in analysis')
+def main(region, show_expirations=False, bake_upfront=False):
     od_price_table = get_price_table(LINUX_ON_DEMAND_PRICE_URL)
     od_price_mapping = price_table_to_price_mapping(od_price_table)
     pre_od_price_table = get_price_table(LINUX_ON_DEMAND_PREVIOUS_GEN_PRICE_URL)
@@ -40,6 +41,7 @@ def main(region, show_expirations=False):
     ec2_all_on_demand_total_cost = 0
 
     conn = boto.ec2.connect_to_region(region)
+    conn.APIVersion = '2016-09-15'
     result = get_reserved_analysis(conn)
 
     columns = [
@@ -59,7 +61,7 @@ def main(region, show_expirations=False):
 
     for (instance_type, vpc, zone, tenancy), instances in result['instance_items']:
         covered_count = 0
-        for _, covered_price, _ in instances:
+        for _, covered_price, _, _ in instances:
             if covered_price is not None:
                 covered_count += 1
 
@@ -70,11 +72,14 @@ def main(region, show_expirations=False):
 
         # cal total cost
         total_cost = 0
-        for _, covered_price, _ in instances:
+        for _, covered_price, _, fixed_price in instances:
             unit_cost = od_unit_cost
             if covered_price is not None:
                 unit_cost = decimal.Decimal(covered_price)
+
             total_cost += unit_cost * month_hours
+            if bake_upfront and fixed_price is not None:
+                total_cost += (decimal.Decimal(fixed_price) / 12)
 
         table.add_row([
             instance_type,
@@ -83,15 +88,19 @@ def main(region, show_expirations=False):
             tenancy,
             '{} / {}'.format(covered_count, len(instances))
         ] + ([''] * 2) + [format_price(total_cost)])
-        for instance_id, covered_price, name in instances:
+        for instance_id, covered_price, name, fixed_price in instances:
             unit_cost = od_unit_cost
             if covered_price is not None:
                 unit_cost = decimal.Decimal(covered_price)
+            instance_cost = unit_cost * month_hours
+            if bake_upfront and fixed_price is not None:
+                instance_cost += (decimal.Decimal(fixed_price) / 12)
+
             table.add_row(([''] * 4) + [
                 covered_price is not None,
                 instance_id,
                 name,
-                format_price(unit_cost * month_hours),
+                format_price(instance_cost),
             ])
 
         ec2_total_cost += total_cost

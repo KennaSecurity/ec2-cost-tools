@@ -5,7 +5,7 @@ import collections
 
 import requests
 
-__version__ = '0.1.0'
+__version__ = '0.1.1'
 
 LINUX_ON_DEMAND_PRICE_URL = (
     'http://a0.awsstatic.com/pricing/1/ec2/linux-od.min.js'
@@ -114,6 +114,9 @@ def _match_reserved_instances(reserved_groups, itype, in_vpc, zone, tenancy):
         # since VPC doesn't really affect the billing, so we also try to
         # match the oppsite VPC setting instances too
         (itype, not in_vpc, zone, tenancy),
+        # try to match non-zoned reservations
+        (itype, in_vpc, None, tenancy),
+        (itype, not in_vpc, None, tenancy),
     ]:
         reserved_instances = reserved_groups.get(tuple(key))
         if reserved_instances:
@@ -139,9 +142,11 @@ def get_reserved_analysis(conn):
                 tenancy=tenancy,
             )
             covered_price = None
+            fixed_price = None
             if matched:
                 covered_price = matched.recurring_charges[0].amount
-            instances.append((instance.id, covered_price, instance.tags.get('Name')))
+                fixed_price = matched.fixed_price
+            instances.append((instance.id, covered_price, instance.tags.get('Name'), fixed_price))
         instance_items.append((
             (itype, vpc_id, zone, tenancy),
             instances,
